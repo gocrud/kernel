@@ -61,36 +61,36 @@ func (k Keyed[T]) All(key any) []T {
 // ensureProvider auto-registers Provider[T] with TryAdd semantics. It must be
 // called from a generic context so the Provider[T] type and its factory closure
 // can be built statically.
-func (b *ContainerBuilder) ensureProvider[T any]() {
+func (b *AppBuilder) ensureProvider[T any]() {
 	pt := reflect.TypeFor[Provider[T]]()
 	if b.isRegistered(pt) {
 		return
 	}
 	d := &descriptor{
 		serviceType: pt,
-		isProvider:  true,
+		isAccessor:  true,
 		paramTypes:  []reflect.Type{reflect.TypeFor[T]()},
-		providerFactory: func(c *Container) any {
-			return Provider[T]{fn: func() (T, error) { return c.Resolve[T]() }}
+		accessorFactory: func(app *App) any {
+			return Provider[T]{fn: func() (T, error) { return app.Get[T]() }}
 		},
 	}
 	b.descriptors[pt] = append(b.descriptors[pt], d)
 }
 
 // ensureKeyed auto-registers Keyed[T] with TryAdd semantics.
-func (b *ContainerBuilder) ensureKeyed[T any]() {
+func (b *AppBuilder) ensureKeyed[T any]() {
 	kt := reflect.TypeFor[Keyed[T]]()
 	if b.isRegistered(kt) {
 		return
 	}
 	d := &descriptor{
 		serviceType: kt,
-		isProvider:  true,
+		isAccessor:  true,
 		keyedOf:     reflect.TypeFor[T](),
-		providerFactory: func(c *Container) any {
+		accessorFactory: func(app *App) any {
 			return Keyed[T]{
-				get: func(key any) (T, error) { return c.ResolveKeyed[T](key) },
-				all: func(key any) []T { return c.ResolveAllKeyed[T](key) },
+				get: func(key any) (T, error) { return app.GetKeyed[T](key) },
+				all: func(key any) []T { return app.GetAllKeyed[T](key) },
 			}
 		},
 	}

@@ -11,7 +11,7 @@ type Source interface {
 }
 
 // WatchSource is a Source that can also push change notifications, used by
-// remote sources such as ETCD. Under the WithReloadable option, WatchSource
+// remote sources. Under the WithReloadable option, WatchSource
 // implementations are watched via Watch; plain Sources (files) are watched
 // with fsnotify instead.
 type WatchSource interface {

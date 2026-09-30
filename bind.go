@@ -67,7 +67,8 @@ func sectionValue(merged map[string]any, section string) (any, bool) {
 }
 
 // nest converts a dotted-key map back into a nested map. Keys are processed in
-// sorted order so a scalar at "a" and children at "a.b" resolve deterministically.
+// sorted order so a scalar at "a" and children at "a.b" are ordered
+// deterministically.
 func nest(m map[string]any) map[string]any {
 	keys := make([]string, 0, len(m))
 	for k := range m {

@@ -19,7 +19,7 @@ type BindSpec struct {
 	OnReloadError func(error)
 }
 
-// ConfigOption customizes a Config[T] binding. Any package can implement it;
+// ConfigOption customizes a Load[T] binding. Any package can implement it;
 // kernel/config provides the built-in options.
 type ConfigOption interface {
 	// Apply mutates spec to customize the binding.
@@ -34,12 +34,12 @@ type DefaultsApplier interface {
 	ApplyDefaults(target any) // target is *T of the binding's T
 }
 
-// configBinding is the frozen description of one Config[T] call.
+// configBinding is the frozen description of one Load[T] call.
 type configBinding struct {
 	section  string
 	t        reflect.Type
-	optsType reflect.Type // *Options[T]
-	monType  reflect.Type // *OptionsMonitor[T]
+	optsType reflect.Type // *Config[T]
+	monType  reflect.Type // *ConfigMonitor[T]
 
 	defaults      []func(any)
 	sources       []Source
@@ -48,15 +48,15 @@ type configBinding struct {
 	onReloadError func(error)
 	logger        *slog.Logger
 
-	// The typed closures below are created in the generic Config[T] context.
-	buildOpts    func() (any, error) // returns *Options[T]
-	buildMonitor func() (any, error) // returns *OptionsMonitor[T]
+	// The typed closures below are created in the generic Load[T] context.
+	buildOpts    func() (any, error) // returns *Config[T]
+	buildMonitor func() (any, error) // returns *ConfigMonitor[T]
 	buildValue   func() (any, error) // returns the bound T (used for reloads)
-	mon          any                 // the *OptionsMonitor[T] registered in the container
-	monSet       func(v any)         // mon.(*OptionsMonitor[T]).Set(v.(T))
+	mon          any                 // the *ConfigMonitor[T] registered in the app
+	monSet       func(v any)         // mon.(*ConfigMonitor[T]).Set(v.(T))
 }
 
-func newConfigBinding[T any](b *ContainerBuilder, section string, opts []ConfigOption) *configBinding {
+func newConfigBinding[T any](b *AppBuilder, section string, opts []ConfigOption) *configBinding {
 	t := reflect.TypeFor[T]()
 	spec := &BindSpec{}
 	var appliers []DefaultsApplier
@@ -74,8 +74,8 @@ func newConfigBinding[T any](b *ContainerBuilder, section string, opts []ConfigO
 	cb := &configBinding{
 		section:       section,
 		t:             t,
-		optsType:      reflect.TypeFor[*Options[T]](),
-		monType:       reflect.TypeFor[*OptionsMonitor[T]](),
+		optsType:      reflect.TypeFor[*Config[T]](),
+		monType:       reflect.TypeFor[*ConfigMonitor[T]](),
 		defaults:      adaptDefaultAppliers(appliers),
 		sources:       spec.Sources,
 		filePaths:     spec.FilePaths,
@@ -95,20 +95,20 @@ func newConfigBinding[T any](b *ContainerBuilder, section string, opts []ConfigO
 		if err != nil {
 			return nil, err
 		}
-		return &Options[T]{Value: v.(T)}, nil
+		return &Config[T]{Value: v.(T)}, nil
 	}
 	cb.buildMonitor = func() (any, error) {
 		v, err := cb.buildValue()
 		if err != nil {
 			return nil, err
 		}
-		return newOptionsMonitor(v.(T)), nil
+		return newConfigMonitor(v.(T)), nil
 	}
 	cb.monSet = func(v any) {
 		if cb.mon == nil {
 			return
 		}
-		m := cb.mon.(*OptionsMonitor[T])
+		m := cb.mon.(*ConfigMonitor[T])
 		if reflect.DeepEqual(m.CurrentValue(), v.(T)) {
 			return // no-op reloads do not notify listeners
 		}
@@ -130,18 +130,18 @@ func adaptDefaultAppliers(appliers []DefaultsApplier) []func(any) {
 	return fns
 }
 
-// Config registers configuration for T in one step: it merges the given
+// Load registers configuration for T in one step: it merges the given
 // sources in registration order (later sources override earlier ones for the
 // same key), binds the section to T, and registers the result as a Singleton
-// *Options[T]. With the WithReloadable option (see kernel/config) it additionally
-// registers a Singleton *OptionsMonitor[T] that automatically receives updates.
-func (b *ContainerBuilder) Config[T any](section string, opts ...ConfigOption) *ContainerBuilder {
+// *Config[T]. With the WithReloadable option (see kernel/config) it additionally
+// registers a Singleton *ConfigMonitor[T] that automatically receives updates.
+func (b *AppBuilder) Load[T any](section string, opts ...ConfigOption) *AppBuilder {
 	b.configBindings = append(b.configBindings, newConfigBinding[T](b, section, opts))
 	return b
 }
 
-// LoadConfig loads and binds T once, outside of DI. WithReloadable is ignored.
-func LoadConfig[T any](section string, opts ...ConfigOption) (*T, error) {
+// Load loads and binds T once, outside of DI. WithReloadable is ignored.
+func Load[T any](section string, opts ...ConfigOption) (*T, error) {
 	cb := newConfigBinding[T](nil, section, opts)
 	v, err := buildBoundValue[T](cb)
 	if err != nil {

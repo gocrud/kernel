@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// Sentinel errors returned (possibly wrapped) by ContainerBuilder.Build and
-// Container resolution methods.
+// Sentinel errors returned (possibly wrapped) by AppBuilder.Build and
+// App resolution methods.
 var (
 	ErrServiceNotRegistered = errors.New("kernel: service not registered")
 	ErrCircularDependency   = errors.New("kernel: circular dependency detected")

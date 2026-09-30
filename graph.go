@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// graphBuilder accumulates the frozen, indexed view of a ContainerBuilder while
+// graphBuilder accumulates the frozen, indexed view of an AppBuilder while
 // Build constructs it.
 type graphBuilder struct {
 	entries []*descriptor
@@ -29,10 +29,10 @@ func (g *graphBuilder) appendEntry(d *descriptor) int {
 	return idx
 }
 
-// resolveParamIndices resolves each of paramTypes to the index of its last
-// unkeyed registration, building the static dependency edges used for cycle
-// detection and construction ordering.
-func (g *graphBuilder) resolveParamIndices(forType reflect.Type, paramTypes []reflect.Type) ([]int, error) {
+// indexParamTypes maps each of paramTypes to the index of its last unkeyed
+// registration, building the static dependency edges used for cycle detection
+// and construction ordering.
+func (g *graphBuilder) indexParamTypes(forType reflect.Type, paramTypes []reflect.Type) ([]int, error) {
 	indices := make([]int, len(paramTypes))
 	for i, pt := range paramTypes {
 		idx, ok := g.typeIndex[pt]
@@ -98,7 +98,7 @@ func (g *graphBuilder) topoSort() ([]int, error) {
 // circular dependencies, and eagerly constructs every service in dependency
 // order. Configuration bindings are loaded and bound here; a returned error
 // means nothing was partially constructed in a usable way.
-func (b *ContainerBuilder) Build() (*Container, error) {
+func (b *AppBuilder) Build() (*App, error) {
 	g := &graphBuilder{
 		typeIndex:    make(map[reflect.Type]int),
 		typeIndices:  make(map[reflect.Type][]int),
@@ -129,7 +129,7 @@ func (b *ContainerBuilder) Build() (*Container, error) {
 	}
 
 	// Configuration bindings become instance descriptors; reloadable bindings
-	// additionally produce an OptionsMonitor and a watcher.
+	// additionally produce a ConfigMonitor and a watcher.
 	for _, cb := range b.configBindings {
 		opts, err := cb.buildOpts()
 		if err != nil {
@@ -162,31 +162,31 @@ func (b *ContainerBuilder) Build() (*Container, error) {
 		g.typeIndices[slogT] = append(g.typeIndices[slogT], idx)
 	}
 
-	// Resolve static dependency indices.
+	// Index the static dependency edges declared by parameter types.
 	for _, d := range g.entries {
 		switch {
 		case d.isInstance:
-			// nothing to resolve
-		case d.isProvider:
+			// nothing to index
+		case d.isAccessor:
 			if d.keyedOf != nil {
 				for _, idxs := range g.keyedIndices[d.keyedOf] {
 					d.paramIndices = append(d.paramIndices, idxs...)
 				}
 			} else {
-				idxs, err := g.resolveParamIndices(d.serviceType, d.paramTypes)
+				idxs, err := g.indexParamTypes(d.serviceType, d.paramTypes)
 				if err != nil {
 					return nil, err
 				}
 				d.paramIndices = idxs
 			}
 		default:
-			idxs, err := g.resolveParamIndices(d.serviceType, d.paramTypes)
+			idxs, err := g.indexParamTypes(d.serviceType, d.paramTypes)
 			if err != nil {
 				return nil, err
 			}
 			d.paramIndices = idxs
 			for i := range d.decorators {
-				decIdxs, err := g.resolveParamIndices(d.serviceType, d.decorators[i].paramTypes)
+				decIdxs, err := g.indexParamTypes(d.serviceType, d.decorators[i].paramTypes)
 				if err != nil {
 					return nil, err
 				}
@@ -200,7 +200,7 @@ func (b *ContainerBuilder) Build() (*Container, error) {
 		return nil, err
 	}
 
-	c := &Container{
+	app := &App{
 		entries:      g.entries,
 		typeIndex:    g.typeIndex,
 		typeIndices:  g.typeIndices,
@@ -212,11 +212,11 @@ func (b *ContainerBuilder) Build() (*Container, error) {
 
 	for _, idx := range order {
 		d := g.entries[idx]
-		if d.isProvider {
+		if d.isAccessor {
 			// Provider / Keyed accessors are created in topological order; their
 			// dependency edges guarantee every target singleton is constructed
 			// first, so the first Get call is always a plain lookup.
-			d.singletonVal = d.providerFactory(c)
+			d.singletonVal = d.accessorFactory(app)
 			continue
 		}
 		if d.isInstance {
@@ -246,27 +246,27 @@ func (b *ContainerBuilder) Build() (*Container, error) {
 			}
 			d.singletonVal = v
 		}
-		registerLifecycle(c, d)
+		registerLifecycle(app, d)
 	}
 
 	for _, w := range g.watchers {
 		w.start()
 	}
-	return c, nil
+	return app, nil
 }
 
-func registerLifecycle(c *Container, d *descriptor) {
+func registerLifecycle(app *App, d *descriptor) {
 	v := d.singletonVal
-	if s, ok := v.(Startable); ok {
-		c.startables = append(c.startables, s)
+	if s, ok := v.(Starter); ok {
+		app.startables = append(app.startables, s)
 	}
-	if _, ok := v.(Stoppable); ok {
-		c.stoppables = append(c.stoppables, stoppable{val: v})
+	if _, ok := v.(Stopper); ok {
+		app.stoppables = append(app.stoppables, stopper{val: v})
 		return
 	}
 	if d.closeOnStop {
 		if _, ok := v.(io.Closer); ok {
-			c.stoppables = append(c.stoppables, stoppable{val: v})
+			app.stoppables = append(app.stoppables, stopper{val: v})
 		}
 	}
 }

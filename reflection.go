@@ -7,29 +7,29 @@ import (
 
 var errType = reflect.TypeFor[error]()
 
-// buildDescriptor inspects provider and returns a descriptor for service type
-// t. provider may be:
+// buildDescriptor inspects factory and returns a descriptor for service type
+// t. factory may be:
 //   - a non-func value: used as a pre-built instance
 //   - func(deps...) T or func(deps...) (T, error): an auto-wired constructor
 //     where every parameter type must itself be a registered service
 //
 // Invalid shapes panic: they are configuration-time programming errors.
-func buildDescriptor(t reflect.Type, provider any) *descriptor {
-	if provider == nil {
-		panic(fmt.Sprintf("kernel: nil provider registered for service %s", t))
+func buildDescriptor(t reflect.Type, factory any) *descriptor {
+	if factory == nil {
+		panic(fmt.Sprintf("kernel: nil factory registered for service %s", t))
 	}
 
-	pv := reflect.ValueOf(provider)
+	pv := reflect.ValueOf(factory)
 	if pv.Kind() != reflect.Func {
-		pt := reflect.TypeOf(provider)
+		pt := reflect.TypeOf(factory)
 		if !pt.AssignableTo(t) {
 			panic(fmt.Sprintf("kernel: instance of type %s is not assignable to service type %s", pt, t))
 		}
-		return &descriptor{serviceType: t, isInstance: true, instance: provider}
+		return &descriptor{serviceType: t, isInstance: true, instance: factory}
 	}
 
 	ft := pv.Type()
-	hasErr := validateReturn(t, ft, "provider function")
+	hasErr := validateReturn(t, ft, "factory function")
 
 	paramTypes := make([]reflect.Type, ft.NumIn())
 	for i := range paramTypes {

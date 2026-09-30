@@ -1,12 +1,12 @@
 // Package config provides the built-in configuration options for
-// kernel.Config[T] and kernel.LoadConfig[T].
+// kernel.Load[T] and the standalone kernel.Load function.
 //
 //	import (
 //	    "github.com/gocrud/kernel"
 //	    config "github.com/gocrud/kernel/config"
 //	)
 //
-//	b.Config[AppConfig]("app",
+//	b.Load[AppConfig]("app",
 //	    config.WithDefaults(func(c *AppConfig) { c.Port = 8080 }),
 //	    config.WithFile("./config/app.yaml"),
 //	    config.WithEnv("APP_"),
@@ -56,16 +56,15 @@ func WithFlag(fs *flag.FlagSet) kernel.ConfigOption {
 	})
 }
 
-// WithSource adds any custom kernel.Source (for example the ETCD source from
-// kernel/etcd).
+// WithSource adds any custom kernel.Source.
 func WithSource(s kernel.Source) kernel.ConfigOption {
 	return optionFunc(func(spec *kernel.BindSpec) {
 		spec.Sources = append(spec.Sources, s)
 	})
 }
 
-// WithReloadable opts the binding into dynamic updates: *kernel.OptionsMonitor[T]
-// is registered in addition to *kernel.Options[T], and file sources (fsnotify)
+// WithReloadable opts the binding into dynamic updates: *kernel.ConfigMonitor[T]
+// is registered in addition to *kernel.Config[T], and file sources (fsnotify)
 // plus WatchSource implementations (push) trigger automatic reloads. Disabled
 // by default. Reload failures keep the previous value and are reported to the
 // logger and the optional WithOnReloadError callback.

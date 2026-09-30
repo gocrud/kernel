@@ -52,18 +52,18 @@ func TestAutoWiring(t *testing.T) {
 	b.Provide[Logger](NewConsoleLogger).
 		Provide[*Repository](NewRepository)
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	l1 := c.MustResolve[Logger]()
-	l2 := c.MustResolve[Logger]()
+	l1 := app.MustGet[Logger]()
+	l2 := app.MustGet[Logger]()
 	if l1 != l2 {
 		t.Fatal("expected singleton logger to be the same instance")
 	}
-	r1 := c.MustResolve[*Repository]()
-	r2 := c.MustResolve[*Repository]()
+	r1 := app.MustGet[*Repository]()
+	r2 := app.MustGet[*Repository]()
 	if r1 != r2 {
 		t.Fatal("expected singleton repository to be the same instance")
 	}
@@ -72,24 +72,24 @@ func TestAutoWiring(t *testing.T) {
 	}
 }
 
-func TestResolveAll(t *testing.T) {
+func TestGetAll(t *testing.T) {
 	b := kernel.New()
 	b.Provide[Validator](func() Validator { return emailValidator{} })
 	b.Provide[Validator](func() Validator { return phoneValidator{} })
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, err := c.ResolveAll[Validator]()
+	all, err := app.GetAll[Validator]()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(all) != 2 || all[0].Validate() != "email" || all[1].Validate() != "phone" {
-		t.Fatalf("unexpected ResolveAll result: %#v", all)
+		t.Fatalf("unexpected GetAll result: %#v", all)
 	}
-	if last := c.MustResolve[Validator](); last.Validate() != "phone" {
-		t.Fatalf("expected Resolve to return the last registration, got %s", last.Validate())
+	if last := app.MustGet[Validator](); last.Validate() != "phone" {
+		t.Fatalf("expected Get to return the last registration, got %s", last.Validate())
 	}
 }
 
@@ -98,11 +98,11 @@ func TestTryProvide(t *testing.T) {
 	b.Provide[Logger](NewConsoleLogger)
 	b.TryProvide[Logger](func() Logger { return &consoleLogger{prefix: "skipped"} })
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.MustResolve[Logger]().(*consoleLogger).prefix; got != "console" {
+	if got := app.MustGet[Logger]().(*consoleLogger).prefix; got != "console" {
 		t.Fatalf("expected TryProvide to skip, got prefix %q", got)
 	}
 }
@@ -115,11 +115,11 @@ func TestProviderInjection(t *testing.T) {
 	// of returning the singleton the auto provider would return.
 	b.Provide[kernel.Provider[Logger]](kernel.Provider[Logger]{})
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.MustResolve[kernel.Provider[Logger]]().Get(); !errors.Is(err, kernel.ErrServiceNotRegistered) {
+	if _, err := app.MustGet[kernel.Provider[Logger]]().Get(); !errors.Is(err, kernel.ErrServiceNotRegistered) {
 		t.Fatalf("expected the user-provided provider to win, got %v", err)
 	}
 }
@@ -133,12 +133,12 @@ func TestProviderCtorInjection(t *testing.T) {
 		return &Holder{Get: p.MustGet()}
 	})
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.MustResolve[*Holder]().Get != c.MustResolve[Logger]() {
-		t.Fatal("Provider[T] inside a constructor must resolve the singleton")
+	if app.MustGet[*Holder]().Get != app.MustGet[Logger]() {
+		t.Fatal("Provider[T] inside a constructor must return the singleton")
 	}
 }
 
@@ -170,22 +170,22 @@ func TestKeyed(t *testing.T) {
 	b.ProvideKeyed[Cache]("memory", func() Cache { return memoryCache{} })
 	b.TryProvideKeyed[Cache]("redis", func() Cache { return memoryCache{} }) // skipped
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.MustResolveKeyed[Cache]("redis").Driver(); got != "redis" {
+	if got := app.MustGetKeyed[Cache]("redis").Driver(); got != "redis" {
 		t.Fatalf("expected redis, got %s", got)
 	}
-	if _, err := c.ResolveKeyed[Cache]("nope"); !errors.Is(err, kernel.ErrServiceNotRegistered) {
+	if _, err := app.GetKeyed[Cache]("nope"); !errors.Is(err, kernel.ErrServiceNotRegistered) {
 		t.Fatalf("expected ErrServiceNotRegistered, got %v", err)
 	}
-	all := c.ResolveAllKeyed[Cache]("redis")
+	all := app.GetAllKeyed[Cache]("redis")
 	if len(all) != 1 || all[0].Driver() != "redis" {
-		t.Fatalf("unexpected ResolveAllKeyed result: %#v", all)
+		t.Fatalf("unexpected GetAllKeyed result: %#v", all)
 	}
 	// keyed and unkeyed are independent spaces
-	if _, err := c.Resolve[Cache](); !errors.Is(err, kernel.ErrServiceNotRegistered) {
+	if _, err := app.Get[Cache](); !errors.Is(err, kernel.ErrServiceNotRegistered) {
 		t.Fatal("keyed registrations must not be visible unkeyed")
 	}
 }
@@ -200,14 +200,14 @@ func TestKeyedAccessorInjection(t *testing.T) {
 		return &Router{Primary: k.MustGet("memory")}
 	})
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.MustResolve[*Router]().Primary.Driver(); got != "memory" {
+	if got := app.MustGet[*Router]().Primary.Driver(); got != "memory" {
 		t.Fatalf("expected memory cache, got %s", got)
 	}
-	k := c.MustResolve[kernel.Keyed[Cache]]()
+	k := app.MustGet[kernel.Keyed[Cache]]()
 	if got := k.All("redis"); len(got) != 1 || got[0].Driver() != "redis" {
 		t.Fatal("Keyed.All must resolve the keyed registrations")
 	}
@@ -220,12 +220,37 @@ func TestDecorate(t *testing.T) {
 		return &upperLogger{inner: inner}, nil
 	})
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.MustResolve[Logger]().(*upperLogger); !ok {
-		t.Fatalf("expected decorated logger, got %T", c.MustResolve[Logger]())
+	if _, ok := app.MustGet[Logger]().(*upperLogger); !ok {
+		t.Fatalf("expected decorated logger, got %T", app.MustGet[Logger]())
+	}
+}
+
+func TestExtend(t *testing.T) {
+	// An Extension takes only *kernel.AppBuilder and returns nothing.
+	ext := func(b *kernel.AppBuilder) {
+		b.TryProvide[Validator](func() Validator { return emailValidator{} })
+	}
+
+	b := kernel.New()
+	// Extend returns the same builder, so chaining continues; the second call
+	// is a no-op because the extension registers via TryProvide.
+	b.Extend(ext).
+		Extend(ext).
+		Provide[Logger](NewConsoleLogger)
+
+	app, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := app.MustGet[Validator]().Validate(); got != "email" {
+		t.Fatalf("expected extension to register the validator, got %s", got)
+	}
+	if app.MustGet[Logger]() == nil {
+		t.Fatal("expected registrations after Extend to land on the same builder")
 	}
 }
 
@@ -266,11 +291,11 @@ func TestConfigure(t *testing.T) {
 	b.Configure(func(c *AppConfig) { c.Port = 8080 })
 	b.Configure(func(c *AppConfig) { c.Port++ })
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.MustResolve[*kernel.Options[AppConfig]]().Value.Port; got != 8081 {
+	if got := app.MustGet[*kernel.Config[AppConfig]]().Value.Port; got != 8081 {
 		t.Fatalf("expected merged port 8081, got %d", got)
 	}
 }
@@ -279,11 +304,11 @@ func TestConfigureMonitor(t *testing.T) {
 	b := kernel.New()
 	b.ConfigureMonitor(func(c *AppConfig) { c.Port = 8080 })
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := c.MustResolve[*kernel.OptionsMonitor[AppConfig]]()
+	m := app.MustGet[*kernel.ConfigMonitor[AppConfig]]()
 	if got := m.CurrentValue().Port; got != 8080 {
 		t.Fatalf("expected initial port 8080, got %d", got)
 	}
@@ -329,14 +354,14 @@ func TestLifecycleOrder(t *testing.T) {
 	b.Provide[*serviceB](func(r *orderRecorder) *serviceB { r.events = append(r.events, "new:B"); return &serviceB{r: r} })
 	b.Provide[*closerC](func(r *orderRecorder) *closerC { r.events = append(r.events, "new:C"); return &closerC{r: r} }, kernel.WithClose())
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Start(context.Background()); err != nil {
+	if err := app.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Stop(context.Background()); err != nil {
+	if err := app.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -370,11 +395,11 @@ func TestCloserNotAutoClosed(t *testing.T) {
 	b.Provide[*orderRecorder](rec)
 	b.Provide[*closerC](func(r *orderRecorder) *closerC { return &closerC{r: r} })
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Stop(context.Background()); err != nil {
+	if err := app.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -403,14 +428,14 @@ func TestRunStartsWaitsAndStops(t *testing.T) {
 	b := kernel.New()
 	b.Provide[*chanService](svc)
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- c.Run(ctx) }()
+	go func() { done <- app.Run(ctx) }()
 
 	select {
 	case <-svc.started:
@@ -437,12 +462,12 @@ func TestRunReturnsStartError(t *testing.T) {
 	b := kernel.New()
 	b.Provide[*errStartService](&errStartService{})
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Start fails, so Run must return immediately without blocking.
-	if err := c.Run(context.Background()); err == nil {
+	if err := app.Run(context.Background()); err == nil {
 		t.Fatal("expected Run to surface the Start error")
 	}
 }
@@ -455,13 +480,13 @@ func TestRunReturnsStopError(t *testing.T) {
 	b := kernel.New()
 	b.Provide[*errStopService](&errStopService{})
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := c.Run(ctx); err == nil {
+	if err := app.Run(ctx); err == nil {
 		t.Fatal("expected Run to surface the Stop error")
 	}
 }
@@ -477,22 +502,22 @@ func writeTemp(t *testing.T, name, content string) string {
 	return path
 }
 
-type Repository2 struct{ Cfg *kernel.Options[AppConfig] }
+type Repository2 struct{ Cfg *kernel.Config[AppConfig] }
 
-func NewRepository2(cfg *kernel.Options[AppConfig]) *Repository2 { return &Repository2{Cfg: cfg} }
+func NewRepository2(cfg *kernel.Config[AppConfig]) *Repository2 { return &Repository2{Cfg: cfg} }
 
 func TestConfigStaticYAML(t *testing.T) {
 	path := writeTemp(t, "app.yaml", "app:\n  port: 8080\n  host: localhost\n")
 
 	b := kernel.New()
-	b.Config[AppConfig]("app", config.WithFile(path))
+	b.Load[AppConfig]("app", config.WithFile(path))
 	b.Provide[*Repository2](NewRepository2)
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := c.MustResolve[*kernel.Options[AppConfig]]().Value
+	got := app.MustGet[*kernel.Config[AppConfig]]().Value
 	if got.Port != 8080 || got.Host != "localhost" {
 		t.Fatalf("unexpected config: %+v", got)
 	}
@@ -503,18 +528,18 @@ func TestConfigPrecedence(t *testing.T) {
 	t.Setenv("APP_PORT", "6000")
 
 	b := kernel.New()
-	b.Config[AppConfig]("app",
+	b.Load[AppConfig]("app",
 		config.WithDefaults(func(c *AppConfig) { c.Port = 1000; c.Host = "default-host" }),
 		config.WithFile(path),
 		config.WithMap(map[string]any{"app.port": 4000}),
 		config.WithEnv("APP_"),
 	)
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := c.MustResolve[*kernel.Options[AppConfig]]().Value
+	got := app.MustGet[*kernel.Config[AppConfig]]().Value
 	if got.Port != 6000 {
 		t.Fatalf("expected env to win with 6000, got %d", got.Port)
 	}
@@ -532,12 +557,12 @@ func TestConfigFlagPrecedence(t *testing.T) {
 	}
 
 	b := kernel.New()
-	b.Config[AppConfig]("app", config.WithFile(path), config.WithFlag(fs))
-	c, err := b.Build()
+	b.Load[AppConfig]("app", config.WithFile(path), config.WithFlag(fs))
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.MustResolve[*kernel.Options[AppConfig]]().Value.Port; got != 7000 {
+	if got := app.MustGet[*kernel.Config[AppConfig]]().Value.Port; got != 7000 {
 		t.Fatalf("expected flag to win with 7000, got %d", got)
 	}
 }
@@ -547,22 +572,22 @@ func TestConfigTomlAndJSON(t *testing.T) {
 	jsonPath := writeTemp(t, "app.json", `{"app": {"port": 8081}}`)
 
 	b := kernel.New()
-	b.Config[AppConfig]("app", config.WithFile(tomlPath))
+	b.Load[AppConfig]("app", config.WithFile(tomlPath))
 	b2 := kernel.New()
-	b2.Config[AppConfig]("app", config.WithFile(jsonPath))
+	b2.Load[AppConfig]("app", config.WithFile(jsonPath))
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.MustResolve[*kernel.Options[AppConfig]]().Value; got.Port != 8080 || got.Host != "toml-host" {
+	if got := app.MustGet[*kernel.Config[AppConfig]]().Value; got.Port != 8080 || got.Host != "toml-host" {
 		t.Fatalf("unexpected toml config: %+v", got)
 	}
-	c2, err := b2.Build()
+	app2, err := b2.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c2.MustResolve[*kernel.Options[AppConfig]]().Value; got.Port != 8081 || got.Host != "" {
+	if got := app2.MustGet[*kernel.Config[AppConfig]]().Value; got.Port != 8081 || got.Host != "" {
 		t.Fatalf("unexpected json config: %+v", got)
 	}
 }
@@ -571,7 +596,7 @@ func TestConfigBindingError(t *testing.T) {
 	path := writeTemp(t, "app.yaml", "app:\n  port: not-a-number\n")
 
 	b := kernel.New()
-	b.Config[AppConfig]("app", config.WithFile(path))
+	b.Load[AppConfig]("app", config.WithFile(path))
 	_, err := b.Build()
 	var cfgErr *kernel.ConfigError
 	if !errors.As(err, &cfgErr) {
@@ -587,18 +612,18 @@ func TestConfigReloadable(t *testing.T) {
 	}
 
 	b := kernel.New()
-	b.Config[AppConfig]("app", config.WithFile(path), config.WithReloadable)
-	c, err := b.Build()
+	b.Load[AppConfig]("app", config.WithFile(path), config.WithReloadable)
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Stop(context.Background())
+	defer app.Stop(context.Background())
 
-	mon := c.MustResolve[*kernel.OptionsMonitor[AppConfig]]()
+	mon := app.MustGet[*kernel.ConfigMonitor[AppConfig]]()
 	if got := mon.CurrentValue().Port; got != 1000 {
 		t.Fatalf("expected initial 1000, got %d", got)
 	}
-	if _, err := c.Resolve[*kernel.OptionsMonitor[AppConfig]](); err != nil {
+	if _, err := app.Get[*kernel.ConfigMonitor[AppConfig]](); err != nil {
 		t.Fatal(err)
 	}
 
@@ -627,16 +652,16 @@ func TestConfigReloadKeepsOldOnError(t *testing.T) {
 	}
 	var reloadErrs []error
 	b := kernel.New()
-	b.Config[AppConfig]("app", config.WithFile(path), config.WithReloadable, config.WithOnReloadError(func(err error) {
+	b.Load[AppConfig]("app", config.WithFile(path), config.WithReloadable, config.WithOnReloadError(func(err error) {
 		reloadErrs = append(reloadErrs, err)
 	}))
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Stop(context.Background())
+	defer app.Stop(context.Background())
 
-	mon := c.MustResolve[*kernel.OptionsMonitor[AppConfig]]()
+	mon := app.MustGet[*kernel.ConfigMonitor[AppConfig]]()
 	// Break the file: reload must fail and keep the old value.
 	time.Sleep(300 * time.Millisecond) // let the fsnotify watch become active
 	if err := os.WriteFile(path, []byte("app: [broken"), 0o644); err != nil {
@@ -651,14 +676,14 @@ func TestConfigReloadKeepsOldOnError(t *testing.T) {
 	}
 }
 
-func TestLoadConfig(t *testing.T) {
+func TestLoad(t *testing.T) {
 	path := writeTemp(t, "app.yaml", "app:\n  port: 4321\n")
-	cfg, err := kernel.LoadConfig[AppConfig]("app", config.WithFile(path), config.WithDefaults(func(c *AppConfig) { c.Host = "h" }))
+	cfg, err := kernel.Load[AppConfig]("app", config.WithFile(path), config.WithDefaults(func(c *AppConfig) { c.Host = "h" }))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Port != 4321 || cfg.Host != "h" {
-		t.Fatalf("unexpected LoadConfig result: %+v", cfg)
+		t.Fatalf("unexpected Load result: %+v", cfg)
 	}
 }
 
@@ -669,12 +694,12 @@ func TestDescribe(t *testing.T) {
 	b.Provide[Logger](NewConsoleLogger).
 		Provide[*Repository](NewRepository)
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
 	var sb strings.Builder
-	c.Describe(&sb)
+	app.Describe(&sb)
 	for _, want := range []string{"Logger", "Repository", "*kernel_test.Repository"} {
 		if !strings.Contains(sb.String(), want) {
 			t.Fatalf("Describe output missing %q:\n%s", want, sb.String())
@@ -687,12 +712,12 @@ func TestDot(t *testing.T) {
 	b.Provide[Logger](NewConsoleLogger).
 		Provide[*Repository](NewRepository)
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
 	var sb strings.Builder
-	c.Dot(&sb)
+	app.Dot(&sb)
 	if !strings.Contains(sb.String(), "digraph kernel") {
 		t.Fatalf("unexpected DOT output:\n%s", sb.String())
 	}
@@ -702,14 +727,14 @@ func TestLoggerAutoRegistered(t *testing.T) {
 	b := kernel.New()
 	b.Provide[Logger](NewConsoleLogger)
 
-	c, err := b.Build()
+	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Logger() == nil {
+	if app.Logger() == nil {
 		t.Fatal("expected a default logger")
 	}
-	if _, err := c.Resolve[*slogLogger](); err != nil {
+	if _, err := app.Get[*slogLogger](); err != nil {
 		t.Fatal("expected *slog.Logger to be auto-registered")
 	}
 }
