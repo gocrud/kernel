@@ -19,7 +19,7 @@ type BindSpec struct {
 	OnReloadError func(error)
 }
 
-// ConfigOption customizes a Load[T] binding. Any package can implement it;
+// ConfigOption customizes an AppBuilder.Config[T] binding. Any package can implement it;
 // kernel/config provides the built-in options.
 type ConfigOption interface {
 	// Apply mutates spec to customize the binding.
@@ -34,7 +34,7 @@ type DefaultsApplier interface {
 	ApplyDefaults(target any) // target is *T of the binding's T
 }
 
-// configBinding is the frozen description of one Load[T] call.
+// configBinding is the frozen description of one AppBuilder.Config call.
 type configBinding struct {
 	section  string
 	t        reflect.Type
@@ -48,7 +48,7 @@ type configBinding struct {
 	onReloadError func(error)
 	logger        *slog.Logger
 
-	// The typed closures below are created in the generic Load[T] context.
+	// The typed closures below are created in the generic Config/LoadConfig context.
 	buildOpts    func() (any, error) // returns *Config[T]
 	buildMonitor func() (any, error) // returns *ConfigMonitor[T]
 	buildValue   func() (any, error) // returns the bound T (used for reloads)
@@ -130,18 +130,19 @@ func adaptDefaultAppliers(appliers []DefaultsApplier) []func(any) {
 	return fns
 }
 
-// Load registers configuration for T in one step: it merges the given
+// Config registers configuration for T in one step: it merges the given
 // sources in registration order (later sources override earlier ones for the
 // same key), binds the section to T, and registers the result as a Singleton
 // *Config[T]. With the WithReloadable option (see kernel/config) it additionally
 // registers a Singleton *ConfigMonitor[T] that automatically receives updates.
-func (b *AppBuilder) Load[T any](section string, opts ...ConfigOption) *AppBuilder {
+func (b *AppBuilder) Config[T any](section string, opts ...ConfigOption) *AppBuilder {
 	b.configBindings = append(b.configBindings, newConfigBinding[T](b, section, opts))
 	return b
 }
 
-// Load loads and binds T once, outside of DI. WithReloadable is ignored.
-func Load[T any](section string, opts ...ConfigOption) (*T, error) {
+// LoadConfig loads and binds T once, outside of DI; it is the standalone
+// counterpart of AppBuilder.Config. WithReloadable is ignored.
+func LoadConfig[T any](section string, opts ...ConfigOption) (*T, error) {
 	cb := newConfigBinding[T](nil, section, opts)
 	v, err := buildBoundValue[T](cb)
 	if err != nil {

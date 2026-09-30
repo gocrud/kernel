@@ -31,7 +31,7 @@ func (b *AppBuilder) Configure[T any](configure func(*T)) *AppBuilder {
 
 // ConfigMonitor holds a live value of T that can be updated at runtime via
 // Set. The framework does not know how or when the value should change:
-// either call Set manually, or enable the WithReloadable Load option to have
+// either call Set manually, or enable the WithReloadable option to have
 // file sources (or a custom WatchSource) push changes automatically.
 type ConfigMonitor[T any] struct {
 	value     atomic.Pointer[T]

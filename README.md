@@ -1,6 +1,6 @@
 # gocrud/kernel
 
-`kernel` 是一个 Go 依赖注入与配置框架：`AppBuilder.Build()` 会一次性完成依赖图分析、循环依赖检测，并按依赖顺序把所有服务**提前构造好**；之后的 `Get` 系列只是读取已经构建好的值，不再有任何反射调用、锁或递归，因此解析接近 O(1)。配置能力融合在同一个包里：一步式 `Load[T]` 完成"默认值 + 多源合并 + struct 绑定 + 注册"，并可选热重载（fsnotify 文件监控；第三方源可实现 `WatchSource` 走推送）；内置配置选项（`WithFile`/`WithEnv`/`WithReloadable` 等）位于 `kernel/config` 子包。
+`kernel` 是一个 Go 依赖注入与配置框架：`AppBuilder.Build()` 会一次性完成依赖图分析、循环依赖检测，并按依赖顺序把所有服务**提前构造好**；之后的 `Get` 系列只是读取已经构建好的值，不再有任何反射调用、锁或递归，因此解析接近 O(1)。配置能力融合在同一个包里：一步式 `b.Config[T]` 完成"默认值 + 多源合并 + struct 绑定 + 注册"，并可选热重载（fsnotify 文件监控；第三方源可实现 `WatchSource` 走推送）；内置配置选项（`WithFile`/`WithEnv`/`WithReloadable` 等）位于 `kernel/config` 子包。
 
 要求 Go 1.27+（依赖方法级泛型参数，如 `b.Provide[Logger](...)`）。
 
@@ -8,12 +8,12 @@
 
 | 类型/函数 | 说明 |
 | --- | --- |
-| `New()` / `*AppBuilder` | 注册服务与配置的入口，链式调用 `Provide`/`Load`/`Decorate` 等 |
+| `New()` / `*AppBuilder` | 注册服务与配置的入口，链式调用 `Provide`/`Config`/`Decorate` 等 |
 | `*App` / `b.Build()` | 只读应用，`Build()` 返回时全部单例已构造完成 |
 | `Provider[T]` | 可注入的工厂委托：`Get()/MustGet()` 取非 keyed 单例 |
 | `Keyed[T]` | 可注入的 keyed 访问器：`Get/MustGet/All(key)` 取具名单例 |
 | `ProvideKeyed[T]` + `GetKeyed` | 具名服务：同一类型按 key 区分多个实现 |
-| `*Config[T]` | 静态配置包装（`Load[T]` / `Configure[T]` 产出） |
+| `*Config[T]` | 静态配置包装（`b.Config[T]` / `Configure[T]` / `LoadConfig[T]` 产出） |
 | `*ConfigMonitor[T]` | 动态配置（`WithReloadable` / `ConfigureMonitor[T]` 产出） |
 | `kernel/config` 包 | 内置配置选项：`config.WithDefaults` / `config.WithFile` / `config.WithMap` / `config.WithEnv` / `config.WithFlag` / `config.WithSource` / `config.WithReloadable` / `config.WithOnReloadError` |
 | `Starter` / `Stopper` / `io.Closer`（需 `WithClose`） | 生命周期钩子，`App.Start`/`Stop` 统一驱动 |
@@ -30,7 +30,7 @@
 5. [生命周期：Start / Stop / Close](#5-生命周期start--stop--close)
 6. [TryProvide 系列](#6-tryprovide-系列)
 7. [Options 模式：Configure](#7-options-模式configure)
-8. [配置：Load[T]](#8-配置loadt)
+8. [配置：Config[T]](#8-配置configt)
 9. [热重载：WithReloadable](#9-热重载withreloadable)
 10. [Decorate 装饰器](#10-decorate-装饰器)
 11. [扩展机制：Extend](#11-扩展机制extend)
@@ -213,11 +213,11 @@ fmt.Println(app.MustGet[*kernel.Config[AppConfig]]().Value.Port) // 8081
 
 - `Configure[T]` 产出只读的 `*Config[T]{Value: T}`（Singleton）。
 - `ConfigureMonitor[T]` 产出可变的 `*ConfigMonitor[T]`：`CurrentValue()` 无锁读取、`OnChange(listener)` 订阅（返回退订函数）、`Set(v)` 手动推送。监听器调用不持锁，可安全地再次 `OnChange`/`Set`。
-- 与文件配置的关系见下一节：`Load[T]` 是"从源加载"的方式，`Configure[T]` 是"用代码配置"的方式，两者产出同一个 `*Config[T]` 类型。
+- 与文件配置的关系见下一节：`Config[T]` 是"从源加载"的方式，`Configure[T]` 是"用代码配置"的方式，两者产出同一个 `*Config[T]` 类型。
 
 ---
 
-### 8. 配置：Load[T]
+### 8. 配置：Config[T]
 
 内置配置选项位于 `kernel/config` 子包（`config.WithDefaults` / `config.WithFile` / `config.WithEnv` ...）：
 
@@ -227,7 +227,7 @@ import (
     config "github.com/gocrud/kernel/config"
 )
 
-b.Load[AppConfig]("app",                     // 类型 + section 一次指定
+b.Config[AppConfig]("app",                     // 类型 + section 一次指定
     config.WithDefaults(func(c *AppConfig) { c.Port = 8080 }), // 强类型默认值（最低优先级）
     config.WithFile("./config/app.yaml"),          // .json/.yaml/.yml/.toml 自动识别
     config.WithEnv("APP_"),                        // APP_PORT → app.port
@@ -239,7 +239,7 @@ cfg := app.MustGet[*kernel.Config[AppConfig]]()
 fmt.Println(cfg.Value.Port)
 ```
 
-- **一步式**：`Load[T](section, opts...)` 把"多源合并 → section 绑定 → 注册 `*Config[T]`"合并为一次调用。`Build()` 时加载，加载/解析/绑定错误并入 `Build()` 的错误返回（fail-fast）。
+- **一步式**：`b.Config[T](section, opts...)` 把"多源合并 → section 绑定 → 注册 `*Config[T]`"合并为一次调用。`Build()` 时加载，加载/解析/绑定错误并入 `Build()` 的错误返回（fail-fast）。
 - **配置源与优先级**：所有源先被扁平化为 dotted key（`app.port`），按**注册顺序**合并——同 key 后者覆盖前者，不同 key 互不干扰。推荐顺序 `WithDefaults < WithFile < WithMap < WithEnv < WithFlag`：
 
   | 选项 | 说明 |
@@ -253,16 +253,16 @@ fmt.Println(cfg.Value.Port)
 
 - **绑定规则**：嵌套 struct / map / slice / 标量；字段 tag 优先级 `config:"app.port"` → `json` → 字段名 snake_case；字符串→int/bool/Duration 等转换统一在绑定层完成（所以 YAML 里的 `int` 与 env 里的字符串都能绑定到同一字段）；错误信息带完整 key 路径。
 - **多文件/多源不冲突**：合并是确定性的 last-wins；文件删掉的 key 重载后即消失；同名 key 结构冲突（一处 map、一处标量）或转换失败在 `Build()` 时报 `*kernel.ConfigError`。
-- 同一个文件可以被多个 `Load` 绑定不同 section；同一个 section 也可以绑定到不同的 struct。
-- **脱离 DI 使用**：`kernel.Load[T](section, opts...) (*T, error)` 一次性静态加载并绑定。
-- 必须在 `Build()` 之前调用 `Load`。
+- 同一个文件可以被多个 `Config` 绑定不同 section；同一个 section 也可以绑定到不同的 struct。
+- **脱离 DI 使用**：`kernel.LoadConfig[T](section, opts...) (*T, error)` 一次性静态加载并绑定。
+- 必须在 `Build()` 之前调用 `Config`（包级 `kernel.LoadConfig` 无此限制）。
 
 ---
 
 ### 9. 热重载：WithReloadable
 
 ```go
-b.Load[AppConfig]("app",
+b.Config[AppConfig]("app",
     config.WithFile("./config/app.yaml"),
     config.WithReloadable,                          // 开启动态（默认关闭）
     config.WithOnReloadError(func(err error) {      // 可选：重载失败回调
@@ -279,7 +279,7 @@ cancel := mon.OnChange(func(cfg AppConfig) { fmt.Println("new port:", cfg.Port) 
 defer cancel()
 ```
 
-- `WithReloadable` 是**默认关闭的可选项**：不加时 `Load[T]` 只注册静态 `*Config[T]`，零后台开销。
+- `WithReloadable` 是**默认关闭的可选项**：不加时 `b.Config[T]` 只注册静态 `*Config[T]`，零后台开销。
 - 开启后额外注册 `*ConfigMonitor[T]`（初值与静态一致）：
   - **文件源**用 fsnotify 监控（watch 父目录，兼容 vim/sed -i 的原子替换保存），debounce 合并连续事件；
   - 实现 `WatchSource` 的源走推送（核心不内建此类源，第三方可实现后经 `config.WithSource` 接入）。
@@ -461,7 +461,7 @@ func (s *Server) Start(ctx context.Context) error {
 func main() {
     app, err := kernel.New().
         WithLogger(slog.Default()).
-        Load[AppConfig]("app",
+        Config[AppConfig]("app",
             config.WithDefaults(func(c *AppConfig) { c.Port = 8080 }),
             config.WithFile("./config/app.yaml"),
             config.WithEnv("APP_"),

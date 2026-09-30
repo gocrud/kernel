@@ -1,12 +1,12 @@
 // Package config provides the built-in configuration options for
-// kernel.Load[T] and the standalone kernel.Load function.
+// AppBuilder.Config[T] and the standalone kernel.LoadConfig function.
 //
 //	import (
 //	    "github.com/gocrud/kernel"
 //	    config "github.com/gocrud/kernel/config"
 //	)
 //
-//	b.Load[AppConfig]("app",
+//	b.Config[AppConfig]("app",
 //	    config.WithDefaults(func(c *AppConfig) { c.Port = 8080 }),
 //	    config.WithFile("./config/app.yaml"),
 //	    config.WithEnv("APP_"),

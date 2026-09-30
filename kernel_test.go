@@ -510,7 +510,7 @@ func TestConfigStaticYAML(t *testing.T) {
 	path := writeTemp(t, "app.yaml", "app:\n  port: 8080\n  host: localhost\n")
 
 	b := kernel.New()
-	b.Load[AppConfig]("app", config.WithFile(path))
+	b.Config[AppConfig]("app", config.WithFile(path))
 	b.Provide[*Repository2](NewRepository2)
 
 	app, err := b.Build()
@@ -528,7 +528,7 @@ func TestConfigPrecedence(t *testing.T) {
 	t.Setenv("APP_PORT", "6000")
 
 	b := kernel.New()
-	b.Load[AppConfig]("app",
+	b.Config[AppConfig]("app",
 		config.WithDefaults(func(c *AppConfig) { c.Port = 1000; c.Host = "default-host" }),
 		config.WithFile(path),
 		config.WithMap(map[string]any{"app.port": 4000}),
@@ -557,7 +557,7 @@ func TestConfigFlagPrecedence(t *testing.T) {
 	}
 
 	b := kernel.New()
-	b.Load[AppConfig]("app", config.WithFile(path), config.WithFlag(fs))
+	b.Config[AppConfig]("app", config.WithFile(path), config.WithFlag(fs))
 	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
@@ -572,9 +572,9 @@ func TestConfigTomlAndJSON(t *testing.T) {
 	jsonPath := writeTemp(t, "app.json", `{"app": {"port": 8081}}`)
 
 	b := kernel.New()
-	b.Load[AppConfig]("app", config.WithFile(tomlPath))
+	b.Config[AppConfig]("app", config.WithFile(tomlPath))
 	b2 := kernel.New()
-	b2.Load[AppConfig]("app", config.WithFile(jsonPath))
+	b2.Config[AppConfig]("app", config.WithFile(jsonPath))
 
 	app, err := b.Build()
 	if err != nil {
@@ -596,7 +596,7 @@ func TestConfigBindingError(t *testing.T) {
 	path := writeTemp(t, "app.yaml", "app:\n  port: not-a-number\n")
 
 	b := kernel.New()
-	b.Load[AppConfig]("app", config.WithFile(path))
+	b.Config[AppConfig]("app", config.WithFile(path))
 	_, err := b.Build()
 	var cfgErr *kernel.ConfigError
 	if !errors.As(err, &cfgErr) {
@@ -612,7 +612,7 @@ func TestConfigReloadable(t *testing.T) {
 	}
 
 	b := kernel.New()
-	b.Load[AppConfig]("app", config.WithFile(path), config.WithReloadable)
+	b.Config[AppConfig]("app", config.WithFile(path), config.WithReloadable)
 	app, err := b.Build()
 	if err != nil {
 		t.Fatal(err)
@@ -652,7 +652,7 @@ func TestConfigReloadKeepsOldOnError(t *testing.T) {
 	}
 	var reloadErrs []error
 	b := kernel.New()
-	b.Load[AppConfig]("app", config.WithFile(path), config.WithReloadable, config.WithOnReloadError(func(err error) {
+	b.Config[AppConfig]("app", config.WithFile(path), config.WithReloadable, config.WithOnReloadError(func(err error) {
 		reloadErrs = append(reloadErrs, err)
 	}))
 	app, err := b.Build()
@@ -676,14 +676,14 @@ func TestConfigReloadKeepsOldOnError(t *testing.T) {
 	}
 }
 
-func TestLoad(t *testing.T) {
+func TestLoadConfig(t *testing.T) {
 	path := writeTemp(t, "app.yaml", "app:\n  port: 4321\n")
-	cfg, err := kernel.Load[AppConfig]("app", config.WithFile(path), config.WithDefaults(func(c *AppConfig) { c.Host = "h" }))
+	cfg, err := kernel.LoadConfig[AppConfig]("app", config.WithFile(path), config.WithDefaults(func(c *AppConfig) { c.Host = "h" }))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Port != 4321 || cfg.Host != "h" {
-		t.Fatalf("unexpected Load result: %+v", cfg)
+		t.Fatalf("unexpected LoadConfig result: %+v", cfg)
 	}
 }
 
